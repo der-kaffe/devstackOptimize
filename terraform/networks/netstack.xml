@@ -1,0 +1,6 @@
+<network>
+  <name>netstack</name>
+  <bridge name='virbr3' stp='on' delay='0'/>
+  <domain name='netstack'/>
+  <ip address='172.24.4.254' netmask='255.255.255.0'/>
+</network>
