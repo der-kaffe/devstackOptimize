@@ -104,6 +104,11 @@
         cmd: "ping -c 1 -W 2 {{ devstack_management_gateway }}"
       changed_when: false
 
+    - name: Usar el DNS del gateway de administración
+      ansible.builtin.command:
+        cmd: "resolvectl dns {{ devstack_management_interface }} {{ devstack_management_gateway }}"
+      changed_when: false
+
     - name: Verificar DNS hacia OpenDev
       ansible.builtin.command:
         cmd: timeout 10 getent ahosts opendev.org
