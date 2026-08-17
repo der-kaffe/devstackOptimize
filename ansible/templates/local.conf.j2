@@ -1,0 +1,32 @@
+[[local|localrc]]
+HOST_IP={{ devstack_management_ip }}
+
+# En un nodo único evita que dos workers de Neutron inicialicen a la vez
+# las asignaciones Geneve en la base de datos.
+API_WORKERS=1
+
+ADMIN_PASSWORD={{ devstack_admin_password }}
+DATABASE_PASSWORD=$ADMIN_PASSWORD
+RABBIT_PASSWORD=$ADMIN_PASSWORD
+SERVICE_PASSWORD=$ADMIN_PASSWORD
+
+PUBLIC_INTERFACE={{ devstack_provider_interface }}
+Q_USE_PROVIDERNET_FOR_PUBLIC={{ devstack_enable_provider_network | ternary('True', 'False') }}
+Q_AGENT=ovn
+Q_ML2_TENANT_NETWORK_TYPE=geneve
+Q_ML2_PLUGIN_MECHANISM_DRIVERS=ovn
+Q_ML2_PLUGIN_TYPE_DRIVERS=flat,geneve,vlan,local
+
+# El pool por defecto debe contener NETWORK_GATEWAY; FIXED_RANGE por sí solo
+# no sustituye IPV4_ADDRS_SAFE_TO_USE en DevStack.
+IPV4_ADDRS_SAFE_TO_USE={{ devstack_fixed_range }}
+FIXED_RANGE={{ devstack_fixed_range }}
+NETWORK_GATEWAY={{ devstack_network_gateway }}
+FLOATING_RANGE={{ devstack_floating_range }}
+PUBLIC_NETWORK_GATEWAY={{ devstack_provider_gateway }}
+Q_FLOATING_ALLOCATION_POOL={{ devstack_floating_allocation_pool }}
+
+enable_service q-svc
+enable_service q-ovn-metadata-agent
+enable_service q-ovn-northd
+enable_service q-ovn-controller

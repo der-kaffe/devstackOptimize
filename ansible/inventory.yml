@@ -1,0 +1,8 @@
+---
+all:
+  children:
+    devstack:
+      hosts:
+        devstack_vm:
+          ansible_host: 192.168.100.5
+          ansible_user: ubuntu

@@ -1,0 +1,29 @@
+---
+# Conexión y usuario inicial de Ubuntu Noble.
+devstack_initial_user: ubuntu
+devstack_user: stack
+devstack_home: /opt/stack
+devstack_dir: /opt/stack/devstack
+
+# OpenStack 2025.2 / Flamingo: commit de stable/2025.2 fijado para la tesis.
+devstack_repo: https://opendev.org/openstack/devstack
+devstack_series: "2025.2"
+devstack_ref: "92e864aa017f61e911a8ce3976e828fa5b750ded"
+
+# Topología de las dos NIC de la VM. HOST_IP no se deriva de ansible_host.
+devstack_management_ip: 192.168.100.5
+devstack_management_gateway: 192.168.100.1
+devstack_management_mac: "52:54:00:64:00:05"
+devstack_provider_ip: 172.24.4.1
+devstack_provider_gateway: 172.24.4.254
+devstack_provider_mac: "52:54:00:24:04:01"
+
+# Neutron/OVN: red de proyecto Geneve y red provider plana sobre la segunda NIC.
+devstack_fixed_range: 10.10.0.0/24
+devstack_network_gateway: 10.10.0.1
+devstack_floating_range: 172.24.4.0/24
+devstack_floating_allocation_pool: "start=172.24.4.100,end=172.24.4.200"
+devstack_enable_provider_network: true
+
+# Solo laboratorio local: no usar esta contraseña fuera de pruebas.
+devstack_admin_password: "1234"

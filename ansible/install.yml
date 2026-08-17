@@ -1,0 +1,168 @@
+---
+- name: Configurar e instalar DevStack como stack
+  hosts: devstack
+  gather_facts: false
+  become: true
+
+  pre_tasks:
+    - name: Confirmar que la interfaz provider sigue presente
+      ansible.builtin.command:
+        cmd: "ip link show {{ devstack_provider_interface }}"
+      changed_when: false
+
+  tasks:
+    - name: Clonar DevStack en la versión fijada
+      ansible.builtin.git:
+        repo: "{{ devstack_repo }}"
+        dest: "{{ devstack_dir }}"
+        version: "{{ devstack_ref }}"
+        update: true
+      become_user: "{{ devstack_user }}"
+
+    - name: Generar local.conf desde variables
+      ansible.builtin.template:
+        src: templates/local.conf.j2
+        dest: "{{ devstack_dir }}/local.conf"
+        owner: "{{ devstack_user }}"
+        group: "{{ devstack_user }}"
+        mode: "0600"
+      become_user: "{{ devstack_user }}"
+      no_log: true
+
+    - name: Comprobar si Ansible completó la instalación de DevStack
+      ansible.builtin.stat:
+        path: "{{ devstack_dir }}/.ansible-stack-complete"
+      register: devstack_install_complete
+      become_user: "{{ devstack_user }}"
+
+    - name: Comprobar si hay un despliegue previo de DevStack
+      ansible.builtin.stat:
+        path: "{{ devstack_dir }}/.stackenv"
+      register: devstack_previous_stack
+      become_user: "{{ devstack_user }}"
+
+    - name: Desapilar el despliegue incompleto antes de reintentarlo
+      ansible.builtin.shell:
+        cmd: >-
+          ./unstack.sh > {{ devstack_dir }}/ansible-unstack.sh.log 2>&1
+        executable: /bin/bash
+        chdir: "{{ devstack_dir }}"
+      changed_when: true
+      failed_when: false
+      become_user: "{{ devstack_user }}"
+      when:
+        - not devstack_install_complete.stat.exists
+        - devstack_previous_stack.stat.exists
+
+    - name: Detener unidades systemd residuales de DevStack
+      ansible.builtin.shell:
+        cmd: >-
+          units=$(systemctl list-units --all --plain --no-legend 'devstack@*.service' |
+          awk '{print $1}');
+          if [ -n "$units" ]; then
+          systemctl stop --no-block $units;
+          systemctl kill --kill-whom=all --signal=SIGKILL $units || true;
+          systemctl reset-failed $units || true;
+          fi
+        executable: /bin/bash
+      changed_when: true
+      when:
+        - not devstack_install_complete.stat.exists
+        - devstack_previous_stack.stat.exists
+
+    - name: Ejecutar stack.sh cuando Ansible no haya completado la instalación
+      ansible.builtin.shell:
+        cmd: >-
+          ./stack.sh > {{ devstack_dir }}/ansible-stack.sh.log 2>&1
+        executable: /bin/bash
+        chdir: "{{ devstack_dir }}"
+      register: stack_sh_result
+      changed_when: stack_sh_result.rc == 0
+      failed_when: false
+      become_user: "{{ devstack_user }}"
+      when: not devstack_install_complete.stat.exists
+
+    - name: Obtener diagnóstico saneado de stack.sh si falla
+      ansible.builtin.shell:
+        cmd: >-
+          tail -n 80 {{ devstack_dir }}/ansible-stack.sh.log |
+          sed -E
+          -e 's/(ADMIN|DATABASE|RABBIT|SERVICE)_PASSWORD=[^[:space:]]+/\1_PASSWORD=********/g'
+          -e 's#(mysql\+pymysql://[^:]+:)[^@]+@#\1********@#g'
+          -e 's/(mysql -uroot -p)[^[:space:]]+/\1********/g'
+          -e 's/(password )[[:alnum:]!@#$%^&*._-]+/\1********/g'
+        executable: /bin/bash
+      register: stack_sh_diagnostic
+      changed_when: false
+      become_user: "{{ devstack_user }}"
+      when:
+        - stack_sh_result is defined
+        - stack_sh_result.rc != 0
+
+    - name: Mostrar diagnóstico de stack.sh
+      ansible.builtin.debug:
+        msg: "{{ stack_sh_diagnostic.stdout_lines }}"
+      when:
+        - stack_sh_result is defined
+        - stack_sh_result.rc != 0
+
+    - name: Fallar si stack.sh no terminó correctamente
+      ansible.builtin.fail:
+        msg: >-
+          stack.sh terminó con código {{ stack_sh_result.rc }}.
+          El diagnóstico saneado aparece en la tarea anterior; el registro completo,
+          privado para stack, está en {{ devstack_dir }}/ansible-stack.sh.log.
+      when:
+        - stack_sh_result is defined
+        - stack_sh_result.rc != 0
+
+    - name: Comprobar que Horizon muestra el inicio de sesión
+      ansible.builtin.uri:
+        url: "http://{{ devstack_management_ip }}/dashboard/auth/login/"
+        method: GET
+        status_code: 200
+      register: devstack_horizon
+      changed_when: false
+      failed_when: false
+
+    - name: Regenerar recursos estáticos de Horizon si faltan
+      ansible.builtin.command:
+        cmd: /opt/stack/data/venv/bin/python manage.py compress --force
+        chdir: /opt/stack/horizon
+      changed_when: true
+      become_user: "{{ devstack_user }}"
+      when: devstack_horizon.status != 200
+
+    - name: Recargar Apache tras regenerar recursos de Horizon
+      ansible.builtin.service:
+        name: apache2
+        state: reloaded
+      when: devstack_horizon.status != 200
+
+    - name: Verificar Horizon tras reparar sus recursos estáticos
+      ansible.builtin.uri:
+        url: "http://{{ devstack_management_ip }}/dashboard/auth/login/"
+        method: GET
+        status_code: 200
+      changed_when: false
+
+    - name: Verificar que OpenStack responde tras stack.sh
+      ansible.builtin.shell:
+        cmd: >-
+          set -o pipefail && . ./openrc admin admin && openstack service list -f value
+        executable: /bin/bash
+        chdir: "{{ devstack_dir }}"
+      changed_when: false
+      become_user: "{{ devstack_user }}"
+
+    - name: Marcar la instalación de DevStack completada por Ansible
+      ansible.builtin.file:
+        path: "{{ devstack_dir }}/.ansible-stack-complete"
+        state: touch
+        owner: "{{ devstack_user }}"
+        group: "{{ devstack_user }}"
+        mode: "0600"
+      become_user: "{{ devstack_user }}"
+      when:
+        - stack_sh_result is defined
+        - stack_sh_result.rc == 0

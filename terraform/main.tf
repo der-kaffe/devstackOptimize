@@ -97,6 +97,7 @@ resource "libvirt_volume" "cloudinit_iso" {
 resource "libvirt_domain" "devstack_vm" {
   name        = var.hostname
   type        = "kvm"
+  running     = true
   memory      = var.memory_mb
   memory_unit = "MiB"
   vcpu        = var.vcpu

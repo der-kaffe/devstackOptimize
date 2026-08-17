@@ -1,0 +1,132 @@
+---
+- name: Preparar Ubuntu Noble para DevStack
+  hosts: devstack
+  gather_facts: true
+  become: true
+
+  pre_tasks:
+    - name: Verificar que Ansible se conectó con el usuario inicial de Noble
+      ansible.builtin.assert:
+        that:
+          - ansible_user == devstack_initial_user
+        fail_msg: >-
+          La conexión inicial debe usar {{ devstack_initial_user }}, no el usuario
+          {{ devstack_user }}. El usuario stack se crea durante esta fase.
+
+  tasks:
+    - name: Instalar dependencias mínimas
+      ansible.builtin.apt:
+        name:
+          - acl
+          - ca-certificates
+          - curl
+          - git
+          - python3-openstackclient
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Crear o verificar el usuario stack
+      ansible.builtin.user:
+        name: "{{ devstack_user }}"
+        home: "{{ devstack_home }}"
+        shell: /bin/bash
+        groups:
+          - sudo
+          - kvm
+        append: true
+        create_home: true
+
+    - name: Dar sudo sin contraseña a stack
+      ansible.builtin.copy:
+        dest: "/etc/sudoers.d/{{ devstack_user }}"
+        content: "{{ devstack_user }} ALL=(ALL) NOPASSWD: ALL\n"
+        owner: root
+        group: root
+        mode: "0440"
+        validate: /usr/sbin/visudo -cf %s
+
+    - name: Asegurar que /opt/stack pertenece a stack
+      ansible.builtin.file:
+        path: "{{ devstack_home }}"
+        state: directory
+        owner: "{{ devstack_user }}"
+        group: "{{ devstack_user }}"
+        mode: "0755"
+
+    - name: Detectar la interfaz de administración por MAC
+      ansible.builtin.shell:
+        cmd: >-
+          ip -o link show | awk -v mac='{{ devstack_management_mac | lower }}'
+          'tolower($0) ~ mac {sub(/:$/, "", $2); print $2}'
+      args:
+        executable: /bin/bash
+      register: management_interface_result
+      changed_when: false
+
+    - name: Detectar la interfaz provider por MAC
+      ansible.builtin.shell:
+        cmd: >-
+          ip -o link show | awk -v mac='{{ devstack_provider_mac | lower }}'
+          'tolower($0) ~ mac {sub(/:$/, "", $2); print $2}'
+      args:
+        executable: /bin/bash
+      register: provider_interface_result
+      changed_when: false
+
+    - name: Registrar interfaces de DevStack detectadas
+      ansible.builtin.set_fact:
+        devstack_management_interface: "{{ management_interface_result.stdout_lines | first | default('') }}"
+        devstack_provider_interface: "{{ provider_interface_result.stdout_lines | first | default('') }}"
+
+    - name: Verificar que existen ambas interfaces esperadas
+      ansible.builtin.assert:
+        that:
+          - devstack_management_interface | length > 0
+          - devstack_provider_interface | length > 0
+          - devstack_management_interface != devstack_provider_interface
+        fail_msg: "No se pudieron asociar las dos NIC a sus MAC configuradas."
+
+    - name: Verificar la IP de administración
+      ansible.builtin.command:
+        cmd: "ip -4 -o addr show dev {{ devstack_management_interface }}"
+      register: management_ip_result
+      changed_when: false
+
+    - name: Confirmar que HOST_IP está configurada en la NIC de administración
+      ansible.builtin.assert:
+        that:
+          - devstack_management_ip in management_ip_result.stdout
+        fail_msg: "{{ devstack_management_ip }} no está configurada en {{ devstack_management_interface }}."
+
+    - name: Verificar conectividad con el gateway de administración
+      ansible.builtin.command:
+        cmd: "ping -c 1 -W 2 {{ devstack_management_gateway }}"
+      changed_when: false
+
+    - name: Verificar DNS hacia OpenDev
+      ansible.builtin.command:
+        cmd: getent ahosts opendev.org
+      changed_when: false
+
+    - name: Verificar acceso HTTPS a OpenDev
+      ansible.builtin.command:
+        cmd: curl --fail --silent --show-error --head --max-time 15 https://opendev.org/
+      changed_when: false
+
+    - name: Verificar disponibilidad de /dev/kvm
+      ansible.builtin.stat:
+        path: /dev/kvm
+      register: kvm_device
+
+    - name: Verificar virtualización anidada
+      ansible.builtin.assert:
+        that:
+          - kvm_device.stat.exists
+          - kvm_device.stat.ischr
+        fail_msg: "/dev/kvm no existe; habilita virtualización anidada antes de instalar Nova."
+
+    - name: Verificar flags de virtualización del CPU
+      ansible.builtin.command:
+        cmd: grep -E -m1 -w '(vmx|svm)' /proc/cpuinfo
+      changed_when: false
