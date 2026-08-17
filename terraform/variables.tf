@@ -96,7 +96,7 @@ variable "netstack_ipv4" {
 variable "dns_servers" {
   description = "Servidores DNS de la interfaz privada."
   type        = list(string)
-  default     = ["8.8.8.8"]
+  default     = ["192.168.100.1"]
 }
 
 variable "enable_spice" {

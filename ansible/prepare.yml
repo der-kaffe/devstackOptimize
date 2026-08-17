@@ -106,7 +106,7 @@
 
     - name: Verificar DNS hacia OpenDev
       ansible.builtin.command:
-        cmd: getent ahosts opendev.org
+        cmd: timeout 10 getent ahosts opendev.org
       changed_when: false
 
     - name: Verificar acceso HTTPS a OpenDev
