@@ -5,10 +5,10 @@ devstack_user: stack
 devstack_home: /opt/stack
 devstack_dir: /opt/stack/devstack
 
-# OpenStack 2026.2 / Gazpacho: rama estable de DevStack.
+# OpenStack 2026.1 / Gazpacho: commit de stable/2026.1 fijado para la tesis.
 devstack_repo: https://opendev.org/openstack/devstack
-devstack_series: "2026.2"
-devstack_ref: "stable/2026.2"
+devstack_series: "2026.1"
+devstack_ref: "da2f4d73f5ad74fc8ecfbe15bd7e20f6b0982dbb"
 
 # Topología de las dos NIC de la VM. HOST_IP no se deriva de ansible_host.
 devstack_management_ip: 192.168.100.5
@@ -25,5 +25,5 @@ devstack_floating_range: 172.24.4.0/24
 devstack_floating_allocation_pool: "start=172.24.4.100,end=172.24.4.200"
 devstack_enable_provider_network: true
 
-# Definir devstack_admin_password en group_vars/devstack/vault.yml, cifrado con
-# Ansible Vault. El archivo de ejemplo documenta el formato y está versionado.
+# Solo laboratorio local. No reutilizar esta contraseña fuera del entorno.
+devstack_admin_password: "1234"

@@ -1,7 +1,5 @@
 ```sh
-ansible-vault create group_vars/devstack/vault.yml
-# Añade: devstack_admin_password: "una-contraseña-larga-y-única"
-ansible-playbook --ask-vault-pass -i inventory.yml site.yml
+ansible-playbook -i inventory.yml site.yml
 ssh ubuntu@192.168.100.5 'sudo -u stack tail -f /opt/stack/devstack/ansible-stack.sh.log'
 ```
 

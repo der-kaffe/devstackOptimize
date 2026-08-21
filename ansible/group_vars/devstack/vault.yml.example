@@ -1,4 +1,0 @@
----
-# Copiar como vault.yml y cifrar antes de usar:
-# ansible-vault encrypt group_vars/devstack/vault.yml
-devstack_admin_password: "REEMPLAZAR_POR_UN_SECRETO_UNICO"

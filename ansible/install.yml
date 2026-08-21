@@ -20,16 +20,6 @@
       register: devstack_checkout
       become_user: "{{ devstack_user }}"
 
-    - name: Verificar que existe una contraseña de administración protegida
-      ansible.builtin.assert:
-        that:
-          - devstack_admin_password is defined
-          - devstack_admin_password | length > 0
-        fail_msg: >-
-          Define devstack_admin_password en group_vars/devstack/vault.yml y
-          cífralo con Ansible Vault antes de instalar DevStack.
-      no_log: true
-
     - name: Generar local.conf desde variables
       ansible.builtin.template:
         src: templates/local.conf.j2
