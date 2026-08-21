@@ -5,5 +5,11 @@
 crash.log
 crash.*.log
 
+# Secretos locales de Ansible Vault.
+ansible/group_vars/devstack/vault.yml
+
+# Estado local generado por Jobforge.
+/.jobforge-mcp/
+
 *.tfvars
 *.tfvars.json

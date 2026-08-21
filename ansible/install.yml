@@ -17,7 +17,18 @@
         dest: "{{ devstack_dir }}"
         version: "{{ devstack_ref }}"
         update: true
+      register: devstack_checkout
       become_user: "{{ devstack_user }}"
+
+    - name: Verificar que existe una contraseña de administración protegida
+      ansible.builtin.assert:
+        that:
+          - devstack_admin_password is defined
+          - devstack_admin_password | length > 0
+        fail_msg: >-
+          Define devstack_admin_password en group_vars/devstack/vault.yml y
+          cífralo con Ansible Vault antes de instalar DevStack.
+      no_log: true
 
     - name: Generar local.conf desde variables
       ansible.builtin.template:
@@ -29,11 +40,42 @@
       become_user: "{{ devstack_user }}"
       no_log: true
 
+    - name: Calcular el fingerprint de la instalación solicitada
+      ansible.builtin.shell:
+        cmd: >-
+          set -o pipefail;
+          printf 'devstack_sha=%s\nlocal_conf_sha256=%s\n'
+          "$(git rev-parse HEAD)" "$(sha256sum local.conf | awk '{print $1}')"
+        executable: /bin/bash
+        chdir: "{{ devstack_dir }}"
+      register: devstack_requested_fingerprint
+      changed_when: false
+      become_user: "{{ devstack_user }}"
+      no_log: true
+
     - name: Comprobar si Ansible completó la instalación de DevStack
       ansible.builtin.stat:
         path: "{{ devstack_dir }}/.ansible-stack-complete"
       register: devstack_install_complete
       become_user: "{{ devstack_user }}"
+
+    - name: Leer el fingerprint de la instalación existente
+      ansible.builtin.slurp:
+        src: "{{ devstack_dir }}/.ansible-stack-complete"
+      register: devstack_installed_fingerprint_file
+      become_user: "{{ devstack_user }}"
+      when: devstack_install_complete.stat.exists
+      no_log: true
+
+    - name: Determinar si DevStack debe reinstalarse
+      ansible.builtin.set_fact:
+        devstack_needs_stack: >-
+          {{
+            not devstack_install_complete.stat.exists
+            or (devstack_installed_fingerprint_file.content | default('') | b64decode)
+               != devstack_requested_fingerprint.stdout
+          }}
+      no_log: true
 
     - name: Comprobar si hay un despliegue previo de DevStack
       ansible.builtin.stat:
@@ -44,14 +86,14 @@
     - name: Desapilar el despliegue incompleto antes de reintentarlo
       ansible.builtin.shell:
         cmd: >-
-          ./unstack.sh > {{ devstack_dir }}/ansible-unstack.sh.log 2>&1
+          umask 077; ./unstack.sh > {{ devstack_dir }}/ansible-unstack.sh.log 2>&1
         executable: /bin/bash
         chdir: "{{ devstack_dir }}"
       changed_when: true
       failed_when: false
       become_user: "{{ devstack_user }}"
       when:
-        - not devstack_install_complete.stat.exists
+        - devstack_needs_stack
         - devstack_previous_stack.stat.exists
 
     - name: Detener unidades systemd residuales de DevStack
@@ -60,27 +102,31 @@
           units=$(systemctl list-units --all --plain --no-legend 'devstack@*.service' |
           awk '{print $1}');
           if [ -n "$units" ]; then
-          systemctl stop --no-block $units;
-          systemctl kill --kill-whom=all --signal=SIGKILL $units || true;
+          systemctl stop $units || true;
+          for _ in $(seq 1 10); do
+          active=''; for unit in $units; do systemctl is-active --quiet "$unit" && active="$active $unit"; done;
+          [ -z "$active" ] && break; sleep 1;
+          done;
+          [ -n "${active:-}" ] && systemctl kill --kill-whom=all --signal=SIGKILL $active || true;
           systemctl reset-failed $units || true;
           fi
         executable: /bin/bash
       changed_when: true
       when:
-        - not devstack_install_complete.stat.exists
+        - devstack_needs_stack
         - devstack_previous_stack.stat.exists
 
     - name: Ejecutar stack.sh cuando Ansible no haya completado la instalación
       ansible.builtin.shell:
         cmd: >-
-          ./stack.sh > {{ devstack_dir }}/ansible-stack.sh.log 2>&1
+          umask 077; ./stack.sh > {{ devstack_dir }}/ansible-stack.sh.log 2>&1
         executable: /bin/bash
         chdir: "{{ devstack_dir }}"
       register: stack_sh_result
       changed_when: stack_sh_result.rc == 0
       failed_when: false
       become_user: "{{ devstack_user }}"
-      when: not devstack_install_complete.stat.exists
+      when: devstack_needs_stack
 
     - name: Obtener diagnóstico saneado de stack.sh si falla
       ansible.builtin.shell:
@@ -96,14 +142,14 @@
       changed_when: false
       become_user: "{{ devstack_user }}"
       when:
-        - stack_sh_result is defined
+        - stack_sh_result is not skipped
         - stack_sh_result.rc != 0
 
     - name: Mostrar diagnóstico de stack.sh
       ansible.builtin.debug:
         msg: "{{ stack_sh_diagnostic.stdout_lines }}"
       when:
-        - stack_sh_result is defined
+        - stack_sh_result is not skipped
         - stack_sh_result.rc != 0
 
     - name: Fallar si stack.sh no terminó correctamente
@@ -113,7 +159,7 @@
           El diagnóstico saneado aparece en la tarea anterior; el registro completo,
           privado para stack, está en {{ devstack_dir }}/ansible-stack.sh.log.
       when:
-        - stack_sh_result is defined
+        - stack_sh_result is not skipped
         - stack_sh_result.rc != 0
 
     - name: Comprobar que Horizon muestra el inicio de sesión
@@ -155,14 +201,44 @@
       changed_when: false
       become_user: "{{ devstack_user }}"
 
-    - name: Marcar la instalación de DevStack completada por Ansible
-      ansible.builtin.file:
-        path: "{{ devstack_dir }}/.ansible-stack-complete"
-        state: touch
+    - name: Guardar el fingerprint de la instalación completada por Ansible
+      ansible.builtin.copy:
+        dest: "{{ devstack_dir }}/.ansible-stack-complete"
+        content: "{{ devstack_requested_fingerprint.stdout }}"
         owner: "{{ devstack_user }}"
         group: "{{ devstack_user }}"
         mode: "0600"
       become_user: "{{ devstack_user }}"
       when:
-        - stack_sh_result is defined
+        - stack_sh_result is not skipped
         - stack_sh_result.rc == 0
+
+    - name: Recopilar manifiesto reproducible del entorno experimental
+      ansible.builtin.shell:
+        cmd: >-
+          set -o pipefail;
+          printf 'os_release=%s\nkernel=%s\npython=%s\nlocal_conf_sha256=%s\n'
+          "$(. /etc/os-release; printf '%s' "$PRETTY_NAME")"
+          "$(uname -r)" "$(python3 --version)"
+          "$(sha256sum local.conf | awk '{print $1}')";
+          for project in devstack nova neutron placement keystone glance; do
+          if git -C "{{ devstack_home }}/$project" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+          printf '%s_sha=%s\n' "$project" "$(git -C "{{ devstack_home }}/$project" rev-parse HEAD)";
+          fi;
+          done;
+          printf 'host_packages=\n';
+          dpkg-query -W -f='${Package}=${Version}\n' qemu-kvm libvirt-daemon-system ovn-host 2>/dev/null || true
+        executable: /bin/bash
+        chdir: "{{ devstack_dir }}"
+      register: devstack_experiment_manifest
+      changed_when: false
+      become_user: "{{ devstack_user }}"
+
+    - name: Guardar manifiesto reproducible del entorno experimental
+      ansible.builtin.copy:
+        dest: "{{ devstack_dir }}/ansible-experiment-manifest.txt"
+        content: "{{ devstack_experiment_manifest.stdout }}\n"
+        owner: "{{ devstack_user }}"
+        group: "{{ devstack_user }}"
+        mode: "0600"
+      become_user: "{{ devstack_user }}"

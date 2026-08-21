@@ -1,10 +1,6 @@
 [[local|localrc]]
 HOST_IP={{ devstack_management_ip }}
 
-# En un nodo único evita que dos workers de Neutron inicialicen a la vez
-# las asignaciones Geneve en la base de datos.
-API_WORKERS=1
-
 ADMIN_PASSWORD={{ devstack_admin_password }}
 DATABASE_PASSWORD=$ADMIN_PASSWORD
 RABBIT_PASSWORD=$ADMIN_PASSWORD
@@ -25,8 +21,3 @@ NETWORK_GATEWAY={{ devstack_network_gateway }}
 FLOATING_RANGE={{ devstack_floating_range }}
 PUBLIC_NETWORK_GATEWAY={{ devstack_provider_gateway }}
 Q_FLOATING_ALLOCATION_POOL={{ devstack_floating_allocation_pool }}
-
-enable_service q-svc
-enable_service q-ovn-metadata-agent
-enable_service q-ovn-northd
-enable_service q-ovn-controller

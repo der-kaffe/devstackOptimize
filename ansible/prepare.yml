@@ -99,14 +99,26 @@
           - devstack_management_ip in management_ip_result.stdout
         fail_msg: "{{ devstack_management_ip }} no está configurada en {{ devstack_management_interface }}."
 
+    - name: Verificar la IP de la red provider
+      ansible.builtin.command:
+        cmd: "ip -4 -o addr show dev {{ devstack_provider_interface }}"
+      register: provider_ip_result
+      changed_when: false
+
+    - name: Confirmar que la IP provider está configurada en su NIC
+      ansible.builtin.assert:
+        that:
+          - devstack_provider_ip in provider_ip_result.stdout
+        fail_msg: "{{ devstack_provider_ip }} no está configurada en {{ devstack_provider_interface }}."
+
     - name: Verificar conectividad con el gateway de administración
       ansible.builtin.command:
         cmd: "ping -c 1 -W 2 {{ devstack_management_gateway }}"
       changed_when: false
 
-    - name: Usar el DNS del gateway de administración
+    - name: Verificar conectividad con el gateway provider
       ansible.builtin.command:
-        cmd: "resolvectl dns {{ devstack_management_interface }} {{ devstack_management_gateway }}"
+        cmd: "ping -I {{ devstack_provider_interface }} -c 1 -W 2 {{ devstack_provider_gateway }}"
       changed_when: false
 
     - name: Verificar DNS hacia OpenDev
@@ -134,4 +146,10 @@
     - name: Verificar flags de virtualización del CPU
       ansible.builtin.command:
         cmd: grep -E -m1 -w '(vmx|svm)' /proc/cpuinfo
+      changed_when: false
+
+    - name: Verificar acceso de stack a /dev/kvm
+      ansible.builtin.command:
+        cmd: test -r /dev/kvm -a -w /dev/kvm
+      become_user: "{{ devstack_user }}"
       changed_when: false
