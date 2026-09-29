@@ -25,5 +25,6 @@ devstack_floating_range: 172.24.4.0/24
 devstack_floating_allocation_pool: "start=172.24.4.100,end=172.24.4.200"
 devstack_enable_provider_network: true
 
-# Solo laboratorio local. No reutilizar esta contraseña fuera del entorno.
-devstack_admin_password: "1234"
+# Se exige desde el entorno del controlador para no versionar secretos.
+# Ejemplo: export DEVSTACK_ADMIN_PASSWORD='una-clave-local'
+devstack_admin_password: "{{ lookup('ansible.builtin.env', 'DEVSTACK_ADMIN_PASSWORD') | default('', true) }}"
