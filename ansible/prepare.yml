@@ -5,6 +5,15 @@
   become: true
 
   pre_tasks:
+    - name: Verificar que la contraseña de laboratorio fue entregada por entorno
+      ansible.builtin.assert:
+        that:
+          - devstack_admin_password | length >= 8
+        fail_msg: >-
+          Define DEVSTACK_ADMIN_PASSWORD en el entorno del controlador antes de
+          ejecutar Ansible (mínimo 8 caracteres). No se aceptan secretos
+          versionados en group_vars.
+
     - name: Verificar que Ansible se conectó con el usuario inicial de Noble
       ansible.builtin.assert:
         that:
